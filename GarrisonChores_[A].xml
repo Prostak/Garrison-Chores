@@ -1,0 +1,1482 @@
+ <!-- Fort, Level 2 by Prostak -->
+ <!-- Thanks to: 	TreeK for a method to press a "Submit Your Order" button;
+					Kmica for a method to switch off harvesting non-permanently 
+ -->
+<HBProfile>
+	<Name>Garrison Chores($Rev: 1.12$)</Name>
+<!-- ChangeLog -->
+<!-- 1.5:
+			- coffee and pick consumed at the entrance, then the remaining items are deleted;
+			- deadend level 2 gather radius reduced: may skip a cart, but prevents running into the "cart in the wall" 
+			- herb gathering also disabled for profile duration: breaks pathing 
+     1.6:
+			- code cleanup using multi-target lists for InteractWith, less error messages and faster decision-making on waypoints.
+	 1.7:
+			- other work orders added;
+			- Secrets of Draenor learned;
+			- placing mine order duplicated before the mine run: just in case you'll be stuck
+			- level 2 mine part skipped if empty - you should be able to use this profile for mine level 1
+			
+	 1.8:   - Hall, Mine, Garden and two small plots for level 3 added
+	 
+	 1.9:   - more tree fruits added
+			- more salvage box types added
+			- daily crafting orders placed
+			- garden order placed
+			- Salvage Tent level 2 corrected
+	 1.10:  
+			- mine and garden orders are now placed smartly
+			- one more type of Blacksmithing Order found, added
+			- one more type of Mine order found, added
+			- minor path corrections
+	 1.11
+			- more order placements improved
+			- mine level 2 changed to meshed, runs extremely fast
+			- toon lower than 96 skip garden altogether
+	 1.12
+			- mount forced at some moments
+			- Trade Post orders placed
+			- mine level 2 on garrison level 3 is unmeshed, corrected
+			- vendor removed to prevent vendor run from an unmeshed area
+-->
+			
+	<MinLevel>90</MinLevel>
+	<MaxLevel>101</MaxLevel>
+
+	<MinDurability>0.2</MinDurability>
+	<MinFreeBagSlots>5</MinFreeBagSlots>
+	
+	<MailGrey>False</MailGrey>
+	<MailWhite>False</MailWhite>
+	<MailGreen>True</MailGreen>
+	<MailBlue>True</MailBlue>
+	<MailPurple>True</MailPurple>  
+	
+	<SellGrey>True</SellGrey>
+	<SellWhite>False</SellWhite>
+	<SellGreen>False</SellGreen>
+	<SellBlue>False</SellBlue>
+	<SellPurple>False</SellPurple>
+
+	<Blackspots>
+	</Blackspots>
+
+	<Vendors>
+	</Vendors>
+	
+	<Mailboxes>
+		<Mailbox X="1922.68" Y="298.1772" Z="88.96593" />  <!-- Fort, Level 2 -->
+	</Mailboxes>
+
+	<AvoidMobs>
+	</AvoidMobs>
+	
+	
+<QuestOrder>
+	
+	<CustomBehavior File="UserSettings" HarvestMinerals="False" />
+	<CustomBehavior File="UserSettings" HarvestHerbs="False" />
+	
+	       <CustomBehavior File="RunCode" Type="Definition"><![CDATA[
+			private int ShipmentsToOrder(int houseId)
+			{
+				int result = Lua.GetReturnVal<int>("local int maxShip,_ = select(3,C_Garrison.GetLandingPageShipmentInfo("+houseId+")); return maxShip",0)
+					 - Lua.GetReturnVal<int>("return C_Garrison.GetNumPendingShipments()",0);
+				//Logging.Write(Colors.Blue, "ShipmentsToOrder: {0}", result);
+				return result;
+			}
+
+			private bool HasShipmentsToOrder(int houseId)
+			{
+				int result = Lua.GetReturnVal<int>("local int maxShip,_ = select(3,C_Garrison.GetLandingPageShipmentInfo("+houseId+")); return maxShip",0)
+					 - Lua.GetReturnVal<int>("return C_Garrison.GetNumPendingShipments()",0);
+				return result > 0;
+			}
+
+			public bool HasReagents()
+			{
+				int needs1 = Lua.GetReturnVal<int>("local needs,_ = select(4,C_Garrison.GetShipmentReagentInfo(1)) return needs",0);
+				int has1   = Lua.GetReturnVal<int>("local bags,_  = select(5,C_Garrison.GetShipmentReagentInfo(1)) return bags",0);
+				int needs2 = Lua.GetReturnVal<int>("local needs,_ = select(4,C_Garrison.GetShipmentReagentInfo(2)) or 0 return needs",0);
+				int has2   = Lua.GetReturnVal<int>("local bags,_  = select(5,C_Garrison.GetShipmentReagentInfo(2)) or 0 return bags",0);
+				
+				//Logging.Write(Colors.Blue, "HasReagents: needs {0} has {1} needs {2} has {3}", needs1, has1, needs2, has2);
+				if ( (has1 >= needs1) && (has2 >= needs2) )	{return true;}
+				return false;
+			}
+
+			private int House(int plotId)
+			{
+				return (Lua.GetReturnVal<int>("for k,v in pairs(C_Garrison.GetBuildings()) do if (v.plotID == "+plotId+") then return v.buildingID end end return 0", 0));
+			}
+
+			private string HouseName(int houseId)
+			{
+				return Lua.GetReturnValues("local string name,_ = select(1,C_Garrison.GetLandingPageShipmentInfo("+houseId+")); return name")[0];
+			}
+
+
+
+            void LogPlot(int plotId)
+            {
+		        int houseId = House( plotId );
+                Logging.Write(Colors.Green, "On plot {0}, building {1} name {2} to order {3} has {4} reagents {5}", plotId, houseId, HouseName( houseId ), ShipmentsToOrder( houseId ), HasShipmentsToOrder( houseId ), HasReagents());
+            }
+			
+			void LogAllPlots()
+			{
+				 for (int i = 1; i <= 100; i++)
+				 {
+					if( House(i) != 0 && !string.IsNullOrEmpty( HouseName(House(i)) ) ) LogPlot( i );
+				 }
+			}
+			
+			void LogMount(string Place)
+			{
+				Logging.Write(Colors.Green, "{0}: UseMount {1}, CanMount {2}", Place, Mount.UseMount, Mount.CanMount() );
+			}
+
+            void ClosePanel()
+            {
+				//Logging.Write(Colors.Red, "Closing frame" );
+                Lua.DoString( "HideUIPanel(GarrisonCapacitiveDisplayFrame) " );
+            }
+			
+			void Order()
+			{
+				//Logging.Write(Colors.Green, "Creating order" );
+				Lua.DoString( "C_Garrison.RequestShipmentCreation()" );
+			}
+			
+			void OrderOrClose( int plotId )
+			{
+				//LogPlot( plotId );
+				int houseId = House(plotId);
+				if( HasShipmentsToOrder(houseId) && HasReagents() )
+				{
+					Order();
+				}
+				else
+				{
+					ClosePanel();
+				}
+			}
+			
+			void OrderOrCloseWithName( int plotId, string name )
+			{
+				//LogPlot( plotId );
+				int houseId = House(plotId);
+				if( HasShipmentsToOrder(houseId) && HasReagents() && name == HouseName(houseId) )
+				{
+					Order();
+				}
+				else
+				{
+					ClosePanel();
+				}
+			}
+			
+			void PrintDistanceTo( int objectId )
+			{
+				foreach (WoWGameObject p in ObjectManager.GetObjectsOfType<WoWGameObject>())
+				{
+					if( p.Entry == objectId )
+					{
+						Logging.Write(Colors.Green, "Distance to {0} is {1}", objectId, p.Distance );
+					}
+				}
+			}
+			
+        ]]></CustomBehavior>		
+	
+	
+	<!--CustomBehavior File="RunCode" Code="PrintDistanceTo( 239179 )" /-->
+	<CustomBehavior File="RunCode" Code="LogMount(&quot;On Start&quot;)" />
+	
+	
+	<!-- If I'm not in Lunarfall -->       <!-- BaturalNoobs suggestion -->
+	<If Condition="Me.ZoneId != 7078" >
+		<!-- Use my Garrison Hearthstone -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(110560)" />
+		<CustomBehavior File="WaitTimer" WaitTime="20000" GoalText="Waiting for port {TimeRemaining}" />
+	</If>
+	
+	<!-- Secrets of Draenor... -->
+	<!-- ... BlackSmithing -->
+	<!-- needs Anvil -->
+
+	<!-- ...Jewelcrafting -->
+	<!-- Requires only a Jewelry Kit -->
+    <If Condition="SpellManager.CanCast(176087)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(176087);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+
+	<!-- ...Alchemy -->
+    <If Condition="SpellManager.CanCast(175880)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(175880);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+
+	<!-- ...Leatherworking -->
+    <If Condition="SpellManager.CanCast(176089)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(176089);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+
+	<!-- ...Tailoring -->
+    <If Condition="SpellManager.CanCast(176058)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(176058);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+	
+	<!-- ...Engineering -->
+	<!--    needs: nothing? -->
+    <If Condition="SpellManager.CanCast(177054)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(177054);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+	
+	<!-- ...Enchanting -->
+    <If Condition="SpellManager.CanCast(177043)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(177043);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+	
+	<!-- ...Inscription -->
+    <If Condition="SpellManager.CanCast(177045)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(177045);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+	
+	
+	
+
+	<!-- If near Mine already, skip other stuff -->
+	<If Condition="(!ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77730) &amp;&amp; u.Distance &lt;= 40))" >
+	
+	<!-- Inside the Command Center Fort, Level 2? Yes: click out -->
+	
+	<!--- Fort Level 2: GameObject Name="Command Table Collision" Entry="239179" X="1942.212" Y="332.0365" Z="91.76377" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 239179) &amp;&amp; u.Distance &lt;= 30))" >
+		<CustomBehavior File="MyCTM" DestName="Inside 1" X="1946.966" Y="325.5229" Z="90.28054" />
+		<CustomBehavior File="MyCTM" DestName="Inside 2" X="1936.55" Y="319.6212" Z="90.40511" />
+		<CustomBehavior File="MyCTM" DestName="Inside 3" X="1939.787" Y="308.885" Z="90.40511" />
+		<CustomBehavior File="MyCTM" DestName="Inside 4" X="1931.62" Y="300.5093" Z="90.40511" />
+		<CustomBehavior File="MyCTM" DestName="Inside 5" X="1919.151" Y="294.071" Z="88.96626" />
+	</If>
+	
+	<!-- Fort Level 3: GameObject Name="Command Table Collision" Entry="239180" X="1932.28" Y="348.7014" Z="91.76377" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 239180) &amp;&amp; u.Distance &lt;= 25))" >
+		<CustomBehavior File="MyCTM" DestName="Inside3 1" X="1935.97" Y="342.9523" Z="90.40522" />
+		<CustomBehavior File="MyCTM" DestName="Inside3 2" X="1939.292" Y="324.6516" Z="90.40544" />
+		<CustomBehavior File="MyCTM" DestName="Inside3 3" X="1933.882" Y="318.7165" Z="89.50323" />
+		<CustomBehavior File="MyCTM" DestName="Inside3 4" X="1937.886" Y="312.6814" Z="90.40479" />
+		<CustomBehavior File="MyCTM" DestName="Inside3 5" X="1939.508" Y="308.7432" Z="90.40479" />
+		<CustomBehavior File="MyCTM" DestName="Inside3 6" X="1920.629" Y="294.1617" Z="88.96609" />
+	</If>
+	
+	<!--GameObject Name="Garrison Cache" Entry="236916" X="1949.946" Y="287.2795" Z="88.96585" -->
+	<!-- GameObject Name="Hefty Garrison Cache" Entry="237723" X="1949.946" Y="287.2795" Z="88.96585" -->
+	<!--GameObject Name="Full Garrison Cache" Entry="237722" X="1949.946" Y="287.2795" Z="88.96585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236916 || u.Entry == 237723 || u.Entry == 237722) &amp;&amp; u.Distance &lt;= 200))" >
+		<CustomBehavior File="FlyTo" DestName="Collect Garrison Cache"  X="1946.311" Y="285.0137" Z="88.96458" />
+		<CustomBehavior File="InteractWith" MobIds="236916, 237723, 237722" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" />
+	</If>
+	
+	<CustomBehavior File="FlyTo" DestName="Collect Herb Shipment" X="1859.568" Y="140.8548" Z="78.29084" />
+	
+	<If Condition="Me.Level &gt; 95"> <!-- No Garden for lowlies -->
+	<CustomBehavior File="InteractWith" MobId="235885" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" />
+	
+	<!--GameObject Name="Finalize Garrison Plot" Entry="236190" X="1853.472" Y="144.3142" Z="78.29136" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236190 &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobId="236190" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="10000" />
+	</If>
+
+	<!-- Placing Garden Order -->
+	<!--WoWUnit Name="Olly Nimkip" Entry="85514" X="1862.031" Y="139.6719" Z="78.29155" /-->
+	<CustomBehavior File="InteractWith" MobId="85514" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<!--CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="19" WaitTime="1000" /-->
+	<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+		<CustomBehavior File="RunCode" Code="OrderOrClose(63)"/>
+		<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+	</While>
+
+	<!-- default path is blocked, moving around -->
+	<CustomBehavior File="FlyTo" DestName="Garden Approach" X="1846.338" Y="151.5113" Z="78.29179" /> 
+	<CustomBehavior File="FlyTo" DestName="Garden Center" X="1821.32" Y="151.1242" Z="76.60436" />
+
+	
+	<!-- Observed so far:
+	<GameObject Name="Starflower" Entry="235389" X="1810.597" Y="151.0712" Z="76.96828" />
+	<GameObject Name="Gorgrond Flytrap" Entry="235388" X="1826.658" Y="161.1719" Z="76.96726" />
+	<GameObject Name="Frostweed" Entry="235376" X="1813.804" Y="161.184" Z="76.96592" />
+	<GameObject Name="Nagrand Arrowbloom" Entry="235390" X="1826.658" Y="161.1719" Z="76.96726" />
+	<GameObject Name="Fireweed" Entry="235387" X="1810.597" Y="151.0712" Z="76.96828" />
+	<GameObject Name="Talador Orchid" Entry="235391" X="1813.804" Y="161.184" Z="76.96592" /-->
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 235389 || u.Entry == 235388 || u.Entry == 235376 || u.Entry == 235390 || u.Entry == 235387 || u.Entry == 235391) &amp;&amp; u.Distance &lt;= 20))" >
+		<CustomBehavior File="InteractWith" MobIds="235389, 235388, 235376, 235390, 235387, 235391" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" />
+	</While>
+	<CustomBehavior File="FlyTo" DestName="Garden Center" X="1821.32" Y="151.1242" Z="76.60436" />  <!-- return to center - prevents stucks -->
+
+	<!--GameObject Name="Giant Nagrand Cherry" Entry="236939" X="1821.877" Y="130.6146" Z="76.53346" /-->
+	<!--GameObject Name="Ironpeel Plantain" Entry="236937" X="1818.635" Y="131.8073" Z="76.67863" /-->
+	<!--GameObject Name="Greenskin Apple" Entry="236917" X="1818.306" Y="129.9757" Z="76.77001" /-->
+	<!--Hotspot X="1820.541" Y="133.8088" Z="76.60424" /!-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236936 || u.Entry == 236937 || u.Entry == 236938 || u.Entry == 236939 || u.Entry == 236917) &amp;&amp; u.Distance &lt;= 120))" >
+	<CustomBehavior File="MyCTM" DestName="Platains" X="1820.541" Y="133.8088" Z="76.60424"   />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236936 || u.Entry == 236937 || u.Entry == 236938 || u.Entry == 236939 || u.Entry == 236917) &amp;&amp; u.Distance &lt;= 20))" >
+		<CustomBehavior File="InteractWith" MobIds="236936, 236937, 236938, 236939, 236917" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="20" WaitTime="100" />
+	</While>
+	<CustomBehavior File="MyCTM" DestName="Garden Center" X="1821.32" Y="151.1242" Z="76.60436" />  <!-- return to center - prevents stucks -->
+	</If>
+	
+	<CustomBehavior File="FlyTo" DestName="Garden Gates" X="1831.61" Y="151.0914" Z="76.60435"   />
+	<CustomBehavior File="FlyTo" DestName="Collect Herb Shipment" X="1859.568" Y="140.8548" Z="78.29084" />
+	<!-- Placing Garden Order -->
+	<!--WoWUnit Name="Olly Nimkip" Entry="85514" X="1862.031" Y="139.6719" Z="78.29155" /-->
+	<CustomBehavior File="InteractWith" MobId="85514" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<!--CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="19" WaitTime="1000" /-->
+	<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+		<CustomBehavior File="RunCode" Code="OrderOrClose(63)"/>
+		<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+	</While>
+	</If> <!-- Level > 95 -->
+
+	<While Condition="!Me.Mounted"> <CustomBehavior File="ForcedMount" MountType="Ground" /> </While>
+	<CustomBehavior File="FlyTo" DestName="NonBlocked Point" X="1874.382" Y="155.8253" Z="80.8322"  />
+
+	</If>  <!-- If near Mine already, skip other stuff -->
+	
+	<CustomBehavior File="RunCode" Code="LogMount(&quot;Near Mine&quot;)"/>
+	
+	<!--GameObject Name="Mine Shipment" Entry="235886" X="1901.799" Y="103.2309" Z="83.52671" /-->
+	<CustomBehavior File="FlyTo" DestName="Collect Mine Shipment" X="1904.24" Y="97.63236" Z="83.52539" />
+	<CustomBehavior File="ForcedDismount" />
+	<UseMount Value="false" />
+	<CustomBehavior File="RunCode" Code="LogMount(&quot;After ForcedDismount&quot;)"/>
+	<CustomBehavior File="InteractWith" MobId="235886" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" />
+	
+	<CustomBehavior File="Message" Text="New Mine Order" LogColor="LawnGreen" />
+	<CustomBehavior File="MyCTM" X="1904.24" Y="97.63236" Z="83.52539" />
+	
+		<CustomBehavior File="InteractWith" MobId="236403" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<!-- Secrets of Draenor Blacksmithing: needs Anvil, we have Thermal here -->
+		<If Condition="SpellManager.CanCast(176090)" >
+			<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(176090);spell.Cast();" />
+			<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+		</If>
+		
+		<!-- Engineering: Gearspring Parts, need Anvil -->
+		<While Condition="SpellManager.CanCast(178242)" >   <!-- 3 charges -->
+			<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(178242);spell.Cast();" />
+			<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+		<If Condition="SpellManager.CanCast(169080)" >  <!-- There is also 178242 which seems more powerful. Avail at 700? -->
+			<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(169080);spell.Cast();" />
+			<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</If>
+		<!-- Blacksmithing: Truesteel Ingot, need Anvil -->
+		<While Condition="SpellManager.CanCast(171718)" > 
+			<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(171718);spell.Cast();" />
+			<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+		<If Condition="SpellManager.CanCast(171690)" > 
+			<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(171690);spell.Cast();" />
+			<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</If>
+		
+
+	
+	<!-- Timothy Leens -->
+	<CustomBehavior File="InteractWith" MobId="77730" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<!--CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="10" WaitTime="1000" /-->
+	<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+		<CustomBehavior File="RunCode" Code="OrderOrClose(59)"/>
+		<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+	</While>
+
+		
+	<!--GameObject Name="Finalize Garrison Plot" Entry="236191" X="1906.675" Y="92.50868" Z="83.52671" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236191 &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobId="236191" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="10000" />
+	</If>
+	
+	<!-- If Mine is empty do not enter it -->
+	<!-- Mine Objects we should loot: -->
+	<!--GameObject Name="Mine Cart" Entry="232541" X="1870.733" Y="164.6161" Z="11.92848" /-->
+	<!--GameObject Name="Blackrock Deposit" Entry="232542" X="1935.229" Y="109.0182" Z="26.51171" /-->
+	<!--GameObject Name="Rich Blackrock Deposit" Entry="232543" X="1861.388" Y="155.2507" Z="16.40648" /-->
+	<!--GameObject Name="True Iron Deposit" Entry="232544" X="1974.088" Y="135.6921" Z="20.56821" /-->
+	<!--GameObject Name="Rich True Iron Deposit" Entry="232545" X="1929.03" Y="90.14417" Z="29.32924" /-->	
+	
+	<!--CustomBehavior File="RunCode" Code="PrintDistanceTo( 232544 )" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 250)))" >
+	
+	<CustomBehavior File="Message" Text="Positioning" LogColor="LawnGreen" />
+	<CustomBehavior File="MyCTM" DestName="Mine 0" X="1903.297" Y="89.51588" Z="83.52676" />
+
+	<CustomBehavior File="Message" Text="Mining" LogColor="LawnGreen" />
+	
+	<CustomBehavior File="MyCTM" DestName="Mine 1" X="1886.043" Y="83.04978" Z="84.29963" />
+
+
+	<!-- First consume Coffee and Pick, then delete both: can make a toon stuck -->
+	<!-- Assumption is: there will be no more than 5 in the mine, and we will try to consume them if possible too -->
+		
+	<!--WoWItem Name="Miner's Coffee" Entry="118897" /-->
+	<!--Aura Name="Miner's Coffee" SpellId="176049" StackCount="0" Creator="Lvl 97 Alliance Shaman" CreatorGuid="08018C000000000000000000008F8AAB" TimeLeft="00:01:45.3280000" Flags="Passive, Cancelable, Active" /-->
+	<!--WoWItem Name="Preserved Mining Pick" Entry="118903" /-->
+	<!--Aura Name="Preserved Mining Pick" SpellId="176061" StackCount="0" Creator="Lvl 97 Alliance Shaman" CreatorGuid="08018C000000000000000000008F8AAB" TimeLeft="00:09:53.5750000" Flags="Passive, Cancelable, Active" /-->
+	<If Condition="!Me.HasAura(176049)">   <!-- Miner's Coffee -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118897)" />
+	</If>
+	<If Condition="!Me.HasAura(176061)">   <!-- Preserved Mining Pick -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118903)" />
+	</If>
+	<CustomBehavior File="DeleteItems" Ids="118897, 118903" />
+
+	<!-- Special Code for Mine Level 2, but not on Fort level 3 map -->
+	<!--GameObject Name="Garrison Building Mine 2" Entry="225539" X="1845.083" Y="146.2743" Z="53.43811" /-->
+	<!--GameObject Name="Gate" Entry="237407" X="1764.316" Y="187.7188" Z="71.29082" /!-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 225539) &amp;&amp; u.Distance &lt;= 250)) &amp;&amp; !(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 237407) &amp;&amp; u.Distance &lt;= 400))" >
+	
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 300)))" >  
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="400" WaitTime="1000" />
+	</While>
+	<CustomBehavior File="FlyTo" DestName="Mine 1" X="1886.043" Y="83.04978" Z="84.29963" />
+
+	<Else>
+
+
+	
+	
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+		<CustomBehavior File="MyCTM" DestName="Mine 1" X="1886.043" Y="83.04978" Z="84.29963" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 2" X="1869.234" Y="72.23249" Z="74.40028" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 2" X="1869.234" Y="72.23249" Z="74.40028" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 3" X="1866.948" Y="48.13017" Z="63.90142" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 3" X="1866.948" Y="48.13017" Z="63.90142" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 4 before Stairs" X="1891.446" Y="47.50459" Z="51.7328"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 4 before Stairs" X="1891.446" Y="47.50459" Z="51.7328"  />
+	</While>
+	
+	<CustomBehavior File="RunCode" Code="LogMount(&quot;Mine 4&quot;)"/>
+
+
+	<CustomBehavior File="MyCTM" DestName="Mine 5 top Stairs" X="1911.338" Y="47.52641" Z="49.72865"  />
+	<!-- Risky! Consider adding the point instead -->
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 10)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="10" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 5 top Stairs" X="1911.338" Y="47.52641" Z="49.72865"  />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 6 Stairs 1" X="1922.634" Y="53.85579" Z="44.80027" />
+		<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 10`)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="10" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 6 Stairs 1" X="1922.634" Y="53.85579" Z="44.80027" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 7 Stairs 2" X="1922.81" Y="68.85069" Z="38.1819" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 9)))" >  <!-- Was 10 -->
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="9" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 7 Stairs 2" X="1922.81" Y="68.85069" Z="38.1819" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 8 Stairs Bottom" X="1919.435" Y="77.98391" Z="32.69093"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 10)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="10" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 8 Stairs Bottom" X="1919.435" Y="77.98391" Z="32.69093"  />
+	</While>
+
+	<If Condition="!Me.HasAura(176049)">   <!-- Miner's Coffee -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118897)" />
+	</If>
+	<If Condition="!Me.HasAura(176061)">   <!-- Preserved Mining Pick -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118903)" />
+	</If>
+	
+	<CustomBehavior File="MyCTM" DestName="Mine 9 Under Stairs" X="1913.983" Y="73.24892" Z="33.22798"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 10)))" >  <!-- was 15: ore across ladder -->
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="10" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 9 Under Stairs" X="1913.983" Y="73.24892" Z="33.22798"  />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 9a Under Stairs" X="1912.395" Y="53.52172" Z="32.52459" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 10)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="10" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 9a Under Stairs" X="1912.395" Y="53.52172" Z="32.52459" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 9 Under Stairs" X="1913.983" Y="73.24892" Z="33.22798"  />
+	<CustomBehavior File="MyCTM" DestName="Mine 9aa Under Stairs" X="1907.369" Y="73.84891" Z="32.55774" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="5" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 9aa Under Stairs" X="1907.369" Y="73.84891" Z="32.55774" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 9b" X="1922.752" Y="83.94311" Z="31.35351" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 9b" X="1922.752" Y="83.94311" Z="31.35351" />
+	</While>
+	
+	<CustomBehavior File="MyCTM" DestName="Mine 10" X="1919.868" Y="98.55029" Z="27.41762"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 10" X="1919.868" Y="98.55029" Z="27.41762"  />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 11" X="1903.013" Y="114.6134" Z="24.71732"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 11" X="1903.013" Y="114.6134" Z="24.71732"  />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 12" X="1872.104" Y="118.0766" Z="21.52756" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 19)))" >  <!-- 20 may be too much here, observed a semi-stuck (cleared by itself) -->
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="19" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 12" X="1872.104" Y="118.0766" Z="21.52756" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 13" X="1855" Y="130.6902" Z="22.90143" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 13" X="1855" Y="130.6902" Z="22.90143" />
+	</While>
+
+	<If Condition="!Me.HasAura(176049)">   <!-- Miner's Coffee -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118897)" />
+	</If>
+	<If Condition="!Me.HasAura(176061)">   <!-- Preserved Mining Pick -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118903)" />
+	</If>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 13a" X="1834.342" Y="144.9781" Z="22.18683" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 10)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="10" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 13a" X="1834.342" Y="144.9781" Z="22.18683" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 14 End Middle" X="1846.766" Y="152.5753" Z="19.04166" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 14 End Middle" X="1846.766" Y="152.5753" Z="19.04166" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 15 End Left" X="1838.655" Y="172.8536" Z="15.58584" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 15 End Left" X="1838.655" Y="172.8536" Z="15.58584" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 15 End Left A" X="1845.47" Y="185.5058" Z="11.30346"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 15 End Left A" X="1845.47" Y="185.5058" Z="11.30346"  />
+	<CustomBehavior File="MyCTM" DestName="Mine 15 End Left" X="1838.655" Y="172.8536" Z="15.58584" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine 14 End Middle" X="1846.766" Y="152.5753" Z="19.04166" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 14 End Middle" X="1846.766" Y="152.5753" Z="19.04166" />
+	</While>
+
+	<If Condition="!Me.HasAura(176049)">   <!-- Miner's Coffee -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118897)" />
+	</If>
+	<If Condition="!Me.HasAura(176061)">   <!-- Preserved Mining Pick -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118903)" />
+	</If>
+
+
+	<CustomBehavior File="MyCTM" DestName="Mine 16 End Right" X="1868.02" Y="172.9136" Z="11.74109" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine 16 End Right" X="1868.02" Y="172.9136" Z="11.74109" />
+	</While>
+	
+	
+	<!-- Running Back -->
+	<CustomBehavior File="Message" Text="Going to Level 2 Part" LogColor="LawnGreen" />
+	<CustomBehavior File="MyCTM" DestName="Mine 14 End Middle" X="1846.766" Y="152.5753" Z="19.04166" />
+	<CustomBehavior File="MyCTM" DestName="Mine 13" X="1855" Y="130.6902" Z="22.90143" />
+	<CustomBehavior File="MyCTM" DestName="Mine 12" X="1872.104" Y="118.0766" Z="21.52756" />
+	<CustomBehavior File="MyCTM" DestName="Mine 11" X="1903.013" Y="114.6134" Z="24.71732"  />
+	<CustomBehavior File="MyCTM" DestName="Mine 10" X="1919.868" Y="98.55029" Z="27.41762"  />
+
+	<!-- Check if there is anything interesting left (for mine level 1 there will be nothing left) -->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 150)))" >
+	
+	<!-- Mining Branch Level 2 -->
+	<CustomBehavior File="Message" Text="Doing Level 2 Part" LogColor="LawnGreen" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 1" X="1927.478" Y="99.39787" Z="27.87953" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 1" X="1927.478" Y="99.39787" Z="27.87953" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 2" X="1940.374" Y="108.0298" Z="26.20984" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 10)))" >  <!-- Was 15, unable to return back --> 
+															  <!-- Was 12, stuck on reaching uncollected on II-1 -->
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="10" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 2" X="1940.374" Y="108.0298" Z="26.20984" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 3" X="1942.563" Y="120.5985" Z="23.6737"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 3" X="1942.563" Y="120.5985" Z="23.6737"  />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 4"  X="1966.619" Y="128.8972" Z="19.12694" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 4"  X="1966.619" Y="128.8972" Z="19.12694" />
+	</While>
+	
+	<If Condition="!Me.HasAura(176049)">   <!-- Miner's Coffee -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118897)" />
+	</If>
+	<If Condition="!Me.HasAura(176061)">   <!-- Preserved Mining Pick -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118903)" />
+	</If>
+
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 5 Waterfall"  X="1984.817" Y="128.947" Z="20.34215" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 17)))" >  <!-- was 20: behind a column unreachable -->
+	                                                          <!-- was 18, pathing filed -->
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="18" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 5 Waterfall"  X="1984.817" Y="128.947" Z="20.34215" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 6 Tunnel Right" X="1982.892" Y="110.6286" Z="19.77951"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 6 Tunnel Right" X="1982.892" Y="110.6286" Z="19.77951"  />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 7" X="1974.003" Y="102.9459" Z="19.19724"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 7" X="1974.003" Y="102.9459" Z="19.19724"  />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 8" X="1966.873" Y="83.2719" Z="14.08194"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 8" X="1966.873" Y="83.2719" Z="14.08194"  />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 9" X="1980.269" Y="69.72335" Z="14.69204"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 9" X="1980.269" Y="69.72335" Z="14.69204"  />
+	</While>
+	
+	<If Condition="!Me.HasAura(176049)">   <!-- Miner's Coffee -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118897)" />
+	</If>
+	<If Condition="!Me.HasAura(176061)">   <!-- Preserved Mining Pick -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118903)" />
+	</If>
+
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 10 Tunnel Right End" X="1995.065" Y="77.40799" Z="15.30851"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 10)))" >  <!-- Was 15, led to stucks -->
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="10" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 10 Tunnel Right End" X="1995.065" Y="77.40799" Z="15.30851"  />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 11 Dead End"  X="2010.553" Y="73.77282" Z="12.03555" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >  	
+		<!-- 15 was too low: cart in the corner was 17 -->
+		<!-- back to 15: decoy was at 16.8 -->
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 11 Dead End"  X="2010.553" Y="73.77282" Z="12.03555" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 12 Tunnel Left"  X="2000.541" Y="88.65382" Z="16.63561" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 12 Tunnel Left"  X="2000.541" Y="88.65382" Z="16.63561" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 13 Join" X="1992.762" Y="106.1332" Z="19.76103"  />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 13 Join" X="1992.762" Y="106.1332" Z="19.76103"  />
+	</While>
+
+	<!-- Back to Old Level 1 Path -->
+	<CustomBehavior File="MyCTM" DestName="Mine-II 5 Waterfall"  X="1984.817" Y="128.947" Z="20.34215" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 4"  X="1966.619" Y="128.8972" Z="19.12694" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 3" X="1942.563" Y="120.5985" Z="23.6737"  />
+	<!--CustomBehavior File="MyCTM" DestName="Mine-II 2" X="1940.374" Y="108.0298" Z="26.20984" /-->
+	
+	<CustomBehavior File="MyCTM" DestName="Mine-II 2a Blind Spot" X="1931.607" Y="120.93" Z="24.07322" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 2a Blind Spot" X="1931.607" Y="120.93" Z="24.07322" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Mine-II 2b Blind Spot" X="1919.09" Y="122.86" Z="23.85637" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 2b Blind Spot" X="1919.09" Y="122.86" Z="23.85637" />
+	</While>
+
+	<If Condition="!Me.HasAura(176049)">   <!-- Miner's Coffee -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118897)" />
+	</If>
+	<If Condition="!Me.HasAura(176061)">   <!-- Preserved Mining Pick -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118903)" />
+	</If>
+	
+
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 150)))" >
+	<!--GameObject Name="Garrison Building Mine 3" Entry="225540" X="1845.083" Y="146.2743" Z="53.41686" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 225540) &amp;&amp; u.Distance &lt;= 150))" >
+	<CustomBehavior File="Message" Text="Mine still not empty - assuming there's Level 3" LogColor="LawnGreen" />
+
+	
+	<!-- Level 3 -->
+	<!-- Level 3 -->
+	<!-- Level 3 -->
+	<!-- Level 3 -->
+	
+	
+	<CustomBehavior File="MyCTM" DestName="Back to Entrance to 3" X="1912.089" Y="113.8452" Z="25.35039" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Back to Entrance to 3" X="1912.089" Y="113.8452" Z="25.35039" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 1" X="1895.716" Y="123.9893" Z="23.52221" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 1" X="1895.716" Y="123.9893" Z="23.52221" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 2" X="1895.953" Y="144.8688" Z="23.08761" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 2" X="1895.953" Y="144.8688" Z="23.08761" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 3" X="1903.313" Y="172.9955" Z="21.29802" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 20)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="20" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 3" X="1903.313" Y="172.9955" Z="21.29802" />
+	</While>
+
+	<If Condition="!Me.HasAura(176049)">   <!-- Miner's Coffee -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118897)" />
+	</If>
+	<If Condition="!Me.HasAura(176061)">   <!-- Preserved Mining Pick -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118903)" />
+	</If>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 4 tunnel exit" X="1914.54" Y="191.7909" Z="20.07759" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 10)))" > <!-- 15 was bad: node behind the bolder -->
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="10" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 4 tunnel exit" X="1914.54" Y="191.7909" Z="20.07759" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 5" X="1927.363" Y="203.3449" Z="20.28288" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 5" X="1927.363" Y="203.3449" Z="20.28288" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 6" X="1933.086" Y="213.5472" Z="20.71549" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 6" X="1933.086" Y="213.5472" Z="20.71549" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 7 before water" X="1945.951" Y="222.0038" Z="20.43974" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<!--CustomBehavior File="MyCTM" DestName="Level3 7 before water" X="1945.951" Y="222.0038" Z="20.43974" /--> <!-- no return here: unable if in water -->
+	</While>
+
+	<If Condition="!Me.HasAura(176049)">   <!-- Miner's Coffee -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118897)" />
+	</If>
+	<If Condition="!Me.HasAura(176061)">   <!-- Preserved Mining Pick -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118903)" />
+	</If>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 8 in water" X="1960.119" Y="229.4293" Z="18.13625" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 8 in water" X="1960.119" Y="229.4293" Z="18.13625" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 9 water" X="1951.215" Y="213.0625" Z="18.11784" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 9 water" X="1951.215" Y="213.0625" Z="18.11784" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 10 water" X="1960.861" Y="192.4812" Z="18.04519" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 10 water" X="1960.861" Y="192.4812" Z="18.04519" />
+	</While>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 11 last water" X="1942.077" Y="189.1465" Z="18.12308" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 11 last water" X="1942.077" Y="189.1465" Z="18.12308" />
+	</While>
+
+	<If Condition="!Me.HasAura(176049)">   <!-- Miner's Coffee -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118897)" />
+	</If>
+	<If Condition="!Me.HasAura(176061)">   <!-- Preserved Mining Pick -->
+		<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(118903)" />
+	</If>
+
+	<CustomBehavior File="MyCTM" DestName="Level3 12 out of water" X="1935.202" Y="193.6325" Z="20.88586" />
+	<While Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (new System.Collections.Generic.HashSet&lt;uint&gt;(){   232541, 232542, 232543, 232544, 232545   }.Contains(u.Entry) &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobIds="232541, 232542, 232543, 232544, 232545" NumOfTimes="1" WaitForNpcs="False" CollectionDistance="15" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<CustomBehavior File="MyCTM" DestName="Level3 12 out of water" X="1935.202" Y="193.6325" Z="20.88586" />
+	</While>
+
+
+	<CustomBehavior File="MyCTM" DestName="Level3 4 tunnel exit" X="1914.54" Y="191.7909" Z="20.07759" />
+	<CustomBehavior File="MyCTM" DestName="Level3 3" X="1903.313" Y="172.9955" Z="21.29802" />
+	<CustomBehavior File="MyCTM" DestName="Level3 2" X="1895.953" Y="144.8688" Z="23.08761" />
+	<CustomBehavior File="MyCTM" DestName="Level3 1" X="1895.716" Y="123.9893" Z="23.52221" />
+	<CustomBehavior File="MyCTM" DestName="Back to Entrance to 3" X="1912.089" Y="113.8452" Z="25.35039" />
+	<CustomBehavior File="MyCTM" DestName="Mine-II 2b Blind Spot" X="1919.09" Y="122.86" Z="23.85637" />
+	
+	</If></If> <!-- Level 3 part -->
+
+
+	
+	<!--CustomBehavior File="MyCTM" DestName="Mine-II 1" X="1927.478" Y="99.39787" Z="27.87953" /-->
+	</If>  <!-- Level 2 not empty -->
+
+	<CustomBehavior File="Message" Text="Exiting Mine" LogColor="LawnGreen" />
+		
+	<CustomBehavior File="MyCTM" DestName="Mine 7 Stairs 2" X="1922.81" Y="68.85069" Z="38.1819" />
+	<CustomBehavior File="MyCTM" DestName="Mine 6 Stairs 1" X="1922.634" Y="53.85579" Z="44.80027" />
+	<CustomBehavior File="MyCTM" DestName="Mine 5 top Stairs" X="1911.338" Y="47.52641" Z="49.72865"  />
+	<CustomBehavior File="MyCTM" DestName="Mine 4 before Stairs" X="1891.446" Y="47.50459" Z="51.7328"  />
+	<CustomBehavior File="MyCTM" DestName="Mine 3" X="1866.948" Y="48.13017" Z="63.90142" />
+	<CustomBehavior File="MyCTM" DestName="Mine 2" X="1869.234" Y="72.23249" Z="74.40028" />
+	<CustomBehavior File="MyCTM" DestName="Mine 1" X="1887.64" Y="84.06419" Z="84.41368" />
+	<CustomBehavior File="MyCTM" DestName="Mine 0" X="1903.297" Y="89.51588" Z="83.52676" />
+	
+	</Else></If> <!-- Special Code for Mine Level 2 -->
+	
+	<CustomBehavior File="Message" Text="New Mine Order" LogColor="LawnGreen" />
+	<CustomBehavior File="MyCTM" X="1904.24" Y="97.63236" Z="83.52539" />
+	<CustomBehavior File="RunCode" Code="LogMount(&quot;Near Timothy&quot;)"/>
+
+	<!-- Timothy Leens -->
+	<!--CustomBehavior File="InteractWith" MobId="77730" NumOfTimes="4" WaitForNpcs="False" InteractByQuestFrameDisposition="Complete" CollectionDistance="40" WaitTime="1000" MovementBy="ClickToMoveOnly" /-->
+	<CustomBehavior File="InteractWith" MobId="77730" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" WaitTime="1000" MovementBy="ClickToMoveOnly" />
+	<!--CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="10" WaitTime="1000" /-->
+	<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+		<CustomBehavior File="RunCode" Code="OrderOrClose(59)"/>
+		<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+	</While>
+	</If> <!-- End of "Mine is not empty" case -->
+
+	<UseMount Value="true" />
+	<CustomBehavior File="RunCode" Code="LogMount(&quot;Before while&quot;)"/>
+
+	<While Condition="!Me.Mounted"> <CustomBehavior File="ForcedMount" MountType="Ground" /> 
+			<!--CustomBehavior File="RunCode" Code="LogMount(&quot;Inside while&quot;)"/-->
+	</While>
+
+	<!-- Running Back to City's Center -->
+	<CustomBehavior File="Message" Text="Back to City" LogColor="LawnGreen" />
+	<CustomBehavior File="MyCTM" DestName="Mine Approach" X="1917.293" Y="96.67243" Z="83.58089" />
+	<CustomBehavior File="FlyTo" DestName="Gates" X="1860.714" Y="179.2432" Z="78.88196" /> 
+	<CustomBehavior File="FlyTo" DestName="Center" X="1869.265" Y="232.1955" Z="76.63982" />
+	
+	<!-- Before Right Small Site -->
+	<!--Hotspot X="1826.854" Y="206.7081" Z="71.97519" /-->
+	<CustomBehavior File="FlyTo" DestName="Right Small Site" X="1826.854" Y="206.7081" Z="71.97519" />
+	
+	<!-- Right Small Site, PlotId = 19 -->
+	<!-- Forge Case -->
+	<!-- Forge Case -->
+	<!-- Forge Case -->
+	<!-- Forge Case -->
+	<!--GameObject Name="Blacksmithing Work Order" Entry="236403" X="1830.576" Y="205.9306" Z="71.98585" /-->
+	<!--GameObject Name="Blacksmithing Work Order" Entry="236640" X="1830.289" Y="205.8373" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236403 || u.Entry == 236640) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236403, 236640" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<!-- Secrets of Draenor Blacksmithing: needs Anvil -->
+		<If Condition="SpellManager.CanCast(176090)" >
+			<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(176090);spell.Cast();" />
+			<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+		</If>
+	
+	<!--WoWUnit Name="Yulia Samras" Entry="77792" X="1831.39" Y="203.0134" Z="72.79379" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77792 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77792"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77792" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(19,&quot;The Forge&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+		<CustomBehavior File="FlyTo" DestName="Right Small Site" X="1826.854" Y="206.7081" Z="71.97519" />
+	</If></If>
+	
+	<!--GameObject Name="Tailoring Work Order" Entry="236420" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236420 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236420" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+
+	<!--WoWUnit Name="Kaylie Macdonald" Entry="77778" X="1825.151" Y="200.6299" Z="72.74622" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77778 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77778"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77778" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(19,&quot;Tailoring Emporium&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+		<CustomBehavior File="FlyTo" DestName="Right Small Site" X="1826.854" Y="206.7081" Z="71.97519" />
+	</If></If>
+	
+	<!--GameObject Name="Enchanting Work Order" Entry="236643" X="1818.785" Y="222.9092" Z="72.17403" /-->
+	<!--GameObject Name="Enchanting Work Order" Entry="236642" X="1830.465" Y="205.7661" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236643 || u.Entry == 236642) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236643, 236642" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Garm" Entry="77781" X="1817.925" Y="232.5392" Z="72.94556" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77781 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77781"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77781" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(19,&quot;Enchanter's Study&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+		<CustomBehavior File="FlyTo" DestName="Right Small Site" X="1826.854" Y="206.7081" Z="71.97519" />
+	</If></If>
+	
+	<!--GameObject Name="Jewelcrafting Work Order" Entry="236652" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236652 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236652" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+
+	<!--WoWUnit Name="Kaya Solasen" Entry="77775" X="1825.785" Y="196.1163" Z="72.75745" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77775 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77775"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77775" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(19,&quot;Gem Boutique&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+		<CustomBehavior File="FlyTo" DestName="Right Small Site" X="1826.854" Y="206.7081" Z="71.97519" />
+	</If>	</If>
+	
+	<!--GameObject Name="Alchemy Work Order" Entry="236639" X="1830.44" Y="206.0272" Z="71.94661" /-->
+	<!--GameObject Name="Alchemy Work Order" Entry="235704" X="1830.394" Y="205.954" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236639 || u.Entry == 235704) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236639, 235704" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Peter Kearie" Entry="77791" X="1829.603" Y="201.3922" Z="72.73963" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77791 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77791"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77791" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(19,&quot;Alchemy Lab&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+		<CustomBehavior File="FlyTo" DestName="Right Small Site" X="1826.854" Y="206.7081" Z="71.97519" />
+	</If></If>
+	
+	<!--GameObject Name="Leatherworking Work Order" Entry="236685" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236685 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236685" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Marianne Levine" Entry="78207" X="1832.248" Y="200.9459" Z="72.71464" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 78207 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="78207"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="78207" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(19,&quot;The Tannery&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+		<CustomBehavior File="FlyTo" DestName="Right Small Site" X="1826.854" Y="206.7081" Z="71.97519" />
+	</If></If>
+	
+	<!--GameObject Name="Engineering Work Order" Entry="236647" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<!--GameObject Name="Engineering Work Order" Entry="236646" X="1818.785" Y="222.9092" Z="72.17403" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236647 || u.Entry == 236646) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236647, 236646" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	
+	<!--WoWUnit Name="Helayn Whent" Entry="77831" X="1828.034" Y="198.3424" Z="72.75751" /-->	
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77831 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77831"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77831" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(19,&quot;Engineering Works&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+		<CustomBehavior File="FlyTo" DestName="Right Small Site" X="1826.854" Y="206.7081" Z="71.97519" />
+	</If></If>
+	
+	<!--GameObject Name="Inscription Work Order" Entry="236649" X="1818.785" Y="222.9092" Z="72.17403" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236649 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236649" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Kurt Broadoak" Entry="77777" X="1821.7" Y="228.4855" Z="72.94585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77777 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77777"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77777" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(19,&quot;Scribe's Quarters&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+		<CustomBehavior File="FlyTo" DestName="Right Small Site" X="1826.854" Y="206.7081" Z="71.97519" />
+	</If></If>
+	
+	<!--GameObject Name="Garrison Building Salvage Tent" Entry="224853" X="1829.896" Y="197.5504" Z="71.98585" /-->
+	<!--GameObject Name="The Incinerator" Entry="236498" X="1832.291" Y="196.5523" Z="72.71624" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 224853 || u.Entry == 236498 ) &amp;&amp; u.Distance &lt;= 20)))" >
+	<!--Hotspot X="1828.805" Y="201.1692" Z="72.74608" /-->
+	<CustomBehavior File="MyCTM" DestName="Salvage Tent" X="1829.277" Y="202.1877" Z="72.73608"  />
+	<!--WoWItem Name="Bag of Salvaged Goods" Entry="114116" /-->
+		<While Condition="( (GetItemCount(114116) ) &gt; 0)" >
+			<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(114116)" />
+		</While>
+		<!--WoWItem Name="Crate of Salvage" Entry="114119" /-->
+		<While Condition="( (GetItemCount(114119) ) &gt; 0)" >
+			<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(114119)" />
+		</While>
+		<While Condition="( (GetItemCount(114120) ) &gt; 0)" >
+			<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(114120)" />
+		</While>
+
+	</If>
+
+		
+	<!-- Now, cross the street:  Left Small Plot, PlotId = 18 -->
+	<!-- -->
+	<!-- -->
+	<!-- -->
+	<!-- -->
+	<!-- -->
+	<!--Hotspot X="1821.658" Y="221.4407" Z="72.17426" /-->
+	<CustomBehavior File="FlyTo" DestName="Left Small Site"  X="1821.658" Y="221.4407" Z="72.17426" />
+	<!-- Forge Case -->
+	<!--GameObject Name="Blacksmithing Work Order" Entry="236403" X="1830.576" Y="205.9306" Z="71.98585" /-->
+	<!--GameObject Name="Blacksmithing Work Order" Entry="236640" X="1830.289" Y="205.8373" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236403 || u.Entry == 236640) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236403, 236640" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<!-- Secrets of Draenor Blacksmithing: needs Anvil -->
+		<If Condition="SpellManager.CanCast(176090)" >
+			<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(176090);spell.Cast();" />
+			<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+		</If>
+	
+	
+	<!--WoWUnit Name="Yulia Samras" Entry="77792" X="1831.39" Y="203.0134" Z="72.79379" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77792 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77792"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77792" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(18,&quot;The Forge&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+	<CustomBehavior File="FlyTo" DestName="Left Small Site"  X="1821.658" Y="221.4407" Z="72.17426" />
+	</If></If>
+	
+	<!--GameObject Name="Tailoring Work Order" Entry="236420" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<!--GameObject Name="Tailoring Work Order" Entry="237665" X="1818.556" Y="222.7817" Z="72.17403" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236420 || u.Entry == 237665) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236420, 237665" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Kaylie Macdonald" Entry="77778" X="1825.151" Y="200.6299" Z="72.74622" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77778 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77778"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77778" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(18,&quot;Tailoring Emporium&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+	<CustomBehavior File="FlyTo" DestName="Left Small Site"  X="1821.658" Y="221.4407" Z="72.17426" />
+	</If></If>
+	
+	<!--GameObject Name="Enchanting Work Order" Entry="236643" X="1818.785" Y="222.9092" Z="72.17403" /-->
+	<!--GameObject Name="Enchanting Work Order" Entry="236642" X="1830.465" Y="205.7661" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236643 || u.Entry == 236642) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236643, 236642" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Garm" Entry="77781" X="1817.925" Y="232.5392" Z="72.94556" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77781 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77781"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77781" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(18,&quot;Enchanter's Study&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+	<CustomBehavior File="FlyTo" DestName="Left Small Site"  X="1821.658" Y="221.4407" Z="72.17426" />
+	</If></If>
+
+	<!--GameObject Name="Jewelcrafting Work Order" Entry="236652" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236652 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236652" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Kaya Solasen" Entry="77775" X="1825.785" Y="196.1163" Z="72.75745" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77775 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77775"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77775" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(18,&quot;Gem Boutique&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+	<CustomBehavior File="FlyTo" DestName="Left Small Site"  X="1821.658" Y="221.4407" Z="72.17426" />
+	</If></If>
+	
+	<!--GameObject Name="Alchemy Work Order" Entry="236639" X="1830.44" Y="206.0272" Z="71.94661" /-->
+	<!--GameObject Name="Alchemy Work Order" Entry="235704" X="1830.394" Y="205.954" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236639 || u.Entry == 235704) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236639, 235704" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Peter Kearie" Entry="77791" X="1829.603" Y="201.3922" Z="72.73963" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77791 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77791"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77791" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(18,&quot;Alchemy Lab&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+	<CustomBehavior File="FlyTo" DestName="Left Small Site"  X="1821.658" Y="221.4407" Z="72.17426" />
+	</If></If>
+	
+	<!--GameObject Name="Leatherworking Work Order" Entry="236685" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236685 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236685" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Marianne Levine" Entry="78207" X="1832.248" Y="200.9459" Z="72.71464" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 78207 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="78207"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="78207" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(18,&quot;The Tannery&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+	<CustomBehavior File="FlyTo" DestName="Left Small Site"  X="1821.658" Y="221.4407" Z="72.17426" />
+	</If></If>
+	
+	<!--GameObject Name="Engineering Work Order" Entry="236647" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<!--GameObject Name="Engineering Work Order" Entry="236646" X="1818.785" Y="222.9092" Z="72.17403" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236647 || u.Entry == 236646) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236647, 236646" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Helayn Whent" Entry="77831" X="1828.034" Y="198.3424" Z="72.75751" /-->	
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77831 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77831"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77831" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(18,&quot;Engineering Works&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+	<CustomBehavior File="FlyTo" DestName="Left Small Site"  X="1821.658" Y="221.4407" Z="72.17426" />
+	</If></If>
+
+	<!--GameObject Name="Inscription Work Order" Entry="236649" X="1818.785" Y="222.9092" Z="72.17403" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236649 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236649" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Kurt Broadoak" Entry="77777" X="1821.7" Y="228.4855" Z="72.94585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77777 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77777"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77777" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrCloseWithName(18,&quot;Scribe's Quarters&quot;)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+	<CustomBehavior File="FlyTo" DestName="Left Small Site"  X="1821.658" Y="221.4407" Z="72.17426" />
+	</If></If>
+	
+	<!--GameObject Name="Garrison Building Salvage Tent" Entry="224853" X="1829.896" Y="197.5504" Z="71.98585" /-->
+	<!--GameObject Name="The Incinerator" Entry="236498" X="1832.291" Y="196.5523" Z="72.71624" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 224853 || u.Entry == 236498 ) &amp;&amp; u.Distance &lt;= 12)))" >
+	<!--Hotspot X="1820.137" Y="226.5557" Z="72.93492" /-->
+	<CustomBehavior File="MyCTM" DestName="Salvage Tent" X="1820.137" Y="226.5557" Z="72.93492" />
+	<!--WoWItem Name="Bag of Salvaged Goods" Entry="114116" /-->
+		<While Condition="( (GetItemCount(114116) ) &gt; 0)" >
+			<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(114116)" />
+		</While>
+		<!--WoWItem Name="Crate of Salvage" Entry="114119" /-->
+		<While Condition="( (GetItemCount(114119) ) &gt; 0)" >
+			<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(114119)" />
+		</While>
+		<While Condition="( (GetItemCount(114120) ) &gt; 0)" >
+			<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(114120)" />
+		</While>
+
+	</If>
+	<CustomBehavior File="FlyTo" DestName="Left Small Site"  X="1821.658" Y="221.4407" Z="72.17426" />
+
+	<!-- These are level 2 gates, let's check -->
+	<!--GameObject Name="Gate" Entry="237408" X="1796.965" Y="205.8924" Z="70.0552" /-->
+	<If Condition="!(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 237408 &amp;&amp; u.Distance &lt;= 50)))" >
+	
+	<!-- Right-2 Small site -->
+	<!-- Right-2 Small site -->
+	<!-- Right-2 Small site -->
+	<!-- Right-2 Small site -->
+	
+	<CustomBehavior File="FlyTo" DestName="Right-2 Small Site"  X="1800.317" Y="199.9772" Z="70.07684" />
+	<!-- Forge Case -->
+	<!--GameObject Name="Blacksmithing Work Order" Entry="236403" X="1830.576" Y="205.9306" Z="71.98585" /-->
+	<!--GameObject Name="Blacksmithing Work Order" Entry="236640" X="1830.289" Y="205.8373" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236403 || u.Entry == 236640) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236403, 236640" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<!-- Secrets of Draenor Blacksmithing: needs Anvil -->
+		<If Condition="SpellManager.CanCast(176090)" >
+			<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(176090);spell.Cast();" />
+			<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+		</If>
+	
+	
+	<!--WoWUnit Name="Yulia Samras" Entry="77792" X="1831.39" Y="203.0134" Z="72.79379" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77792 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77792"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77792" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="19" WaitTime="1000" />
+	<CustomBehavior File="FlyTo" DestName="Right-2 Small Site"  X="1800.317" Y="199.9772" Z="70.07684" />
+	</If></If>
+	
+	<!--GameObject Name="Tailoring Work Order" Entry="236420" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<!--GameObject Name="Tailoring Work Order" Entry="237665" X="1818.556" Y="222.7817" Z="72.17403" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 236420 || u.Entry == 237665) &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobIds="236420, 237665" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Kaylie Macdonald" Entry="77778" X="1825.151" Y="200.6299" Z="72.74622" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77778 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77778"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77778" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="19" WaitTime="1000" />
+	<CustomBehavior File="FlyTo" DestName="Right-2 Small Site"  X="1800.317" Y="199.9772" Z="70.07684" />
+	</If></If>
+	
+	<!--GameObject Name="Enchanting Work Order" Entry="236643" X="1818.785" Y="222.9092" Z="72.17403" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236643 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236643" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Garm" Entry="77781" X="1817.925" Y="232.5392" Z="72.94556" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77781 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77781"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77781" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="19" WaitTime="1000" />
+	<CustomBehavior File="FlyTo" DestName="Right-2 Small Site"  X="1800.317" Y="199.9772" Z="70.07684" />
+	</If></If>
+
+	<!--GameObject Name="Jewelcrafting Work Order" Entry="236652" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236652 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236652" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Kaya Solasen" Entry="77775" X="1825.785" Y="196.1163" Z="72.75745" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77775 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77775"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77775" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="19" WaitTime="1000" />
+	<CustomBehavior File="FlyTo" DestName="Right-2 Small Site"  X="1800.317" Y="199.9772" Z="70.07684" />
+	</If></If>
+	
+	<!--GameObject Name="Alchemy Work Order" Entry="236639" X="1830.44" Y="206.0272" Z="71.94661" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236639 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236639" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Peter Kearie" Entry="77791" X="1829.603" Y="201.3922" Z="72.73963" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77791 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77791"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77791" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="19" WaitTime="1000" />
+	<CustomBehavior File="FlyTo" DestName="Right-2 Small Site"  X="1800.317" Y="199.9772" Z="70.07684" />
+	</If></If>
+	
+	<!--GameObject Name="Leatherworking Work Order" Entry="236685" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236685 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236685" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Marianne Levine" Entry="78207" X="1832.248" Y="200.9459" Z="72.71464" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 78207 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="78207"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="78207" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="19" WaitTime="1000" />
+	<CustomBehavior File="FlyTo" DestName="Right-2 Small Site"  X="1800.317" Y="199.9772" Z="70.07684" />
+	</If></If>
+	
+	<!--GameObject Name="Engineering Work Order" Entry="236647" X="1830.401" Y="205.9452" Z="71.98585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236647 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236647" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Helayn Whent" Entry="77831" X="1828.034" Y="198.3424" Z="72.75751" /-->	
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77831 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77831"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77831" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="19" WaitTime="1000" />
+	<CustomBehavior File="FlyTo" DestName="Right-2 Small Site"  X="1800.317" Y="199.9772" Z="70.07684" />
+	</If></If>
+
+	<!--GameObject Name="Inscription Work Order" Entry="236649" X="1818.785" Y="222.9092" Z="72.17403" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 236649 &amp;&amp; u.Distance &lt;= 5)))" >
+		<CustomBehavior File="InteractWith" MobId="236649" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+	
+	<!--WoWUnit Name="Kurt Broadoak" Entry="77777" X="1821.7" Y="228.4855" Z="72.94585" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWUnit&gt;().Any(u =&gt; (u.Entry == 77777 &amp;&amp; u.Distance &lt;= 20)))" > <!-- opposite is on 22, may be closer -->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="77777"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="77777" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<CustomBehavior File="Misc\RunLua" Lua="C_Garrison.RequestShipmentCreation()" NumOfTimes="19" WaitTime="1000" />
+	<CustomBehavior File="FlyTo" DestName="Right-2 Small Site"  X="1800.317" Y="199.9772" Z="70.07684" />
+	</If></If>
+	
+	<!--GameObject Name="Garrison Building Salvage Tent" Entry="224853" X="1829.896" Y="197.5504" Z="71.98585" /-->
+	<!--GameObject Name="The Incinerator" Entry="236498" X="1832.291" Y="196.5523" Z="72.71624" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; ((u.Entry == 224853 || u.Entry == 236498 ) &amp;&amp; u.Distance &lt;= 12)))" >
+	<!--Hotspot X="1820.137" Y="226.5557" Z="72.93492" /-->
+	<CustomBehavior File="MyCTM" DestName="Salvage Tent" X="1820.137" Y="226.5557" Z="72.93492" />
+	<!--WoWItem Name="Bag of Salvaged Goods" Entry="114116" /-->
+		<While Condition="( (GetItemCount(114116) ) &gt; 0)" >
+			<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(114116)" />
+		</While>
+		<!--WoWItem Name="Crate of Salvage" Entry="114119" /-->
+		<While Condition="( (GetItemCount(114119) ) &gt; 0)" >
+			<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(114119)" />
+		</While>
+		<While Condition="( (GetItemCount(114120) ) &gt; 0)" >
+			<CustomBehavior File="Misc\RunLua" Lua="UseItemByName(114120)" />
+		</While>
+
+	</If>
+	<CustomBehavior File="FlyTo" DestName="Right-2 Small Site"  X="1800.317" Y="199.9772" Z="70.07684" />
+	
+	<While Condition="!Me.Mounted"> <CustomBehavior File="ForcedMount" MountType="Ground" /> </While>
+	<CustomBehavior File="FlyTo" DestName="Center" X="1869.265" Y="232.1955" Z="76.63982" />
+
+	
+	<!--Hotspot X="1883.469" Y="192.1361" Z="78.64114" /-->
+	<CustomBehavior File="FlyTo" DestName="Medium Right" X="1883.469" Y="192.1361" Z="78.64114" />
+	
+	<!-- Medium Right, PlotId = 25 -->
+	<!-- -->
+	<!-- -->
+	<!-- -->
+	<!--GameObject Name="Trading Post Shipment" Entry="237027" X="1882.323" Y="200.819" Z="78.00807" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 237027 &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobId="237027" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<!--WoWUnit Name="Trader Joseph" Entry="87213" X="1884.985" Y="187.1165" Z="78.65109" /-->
+		<!--WoWUnit Name="Trader Joseph" Entry="87208" X="1868.831" Y="312.5587" Z="82.25536" /-->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="87213" MobId1="87208"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="87213" MobId1="87208" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrClose(25)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+	</If>
+
+	</If> <!-- No Level 2 gates case -->
+	
+		
+	<CustomBehavior File="FlyTo" DestName="Center" X="1869.265" Y="232.1955" Z="76.63982" />
+
+	<!-- Medium-1, PlotId = 22 -->
+	<!-- -->
+	<!-- -->
+	<!-- -->
+	<!--Hotspot X="1865.989" Y="299.4037" Z="81.6607" /-->
+	<CustomBehavior File="FlyTo" DestName="Medium-1" X="1865.989" Y="299.4037" Z="81.6607" />
+	<!--GameObject Name="Trading Post Shipment" Entry="237027" X="1882.323" Y="200.819" Z="78.00807" /-->
+	<If Condition="(ObjectManager.GetObjectsOfType&lt;WoWGameObject&gt;().Any(u =&gt; (u.Entry == 237027 &amp;&amp; u.Distance &lt;= 15)))" >
+		<CustomBehavior File="InteractWith" MobId="237027" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<!--WoWUnit Name="Trader Joseph" Entry="87213" X="1884.985" Y="187.1165" Z="78.65109" /-->
+		<!--WoWUnit Name="Trader Joseph" Entry="87208" X="1868.831" Y="312.5587" Z="82.25536" /-->
+		<CustomBehavior File="TargetAndMoveToMob" MobId="87213" MobId1="87208"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+		<CustomBehavior File="InteractWith" MobId="87213" MobId1="87208" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" MovementBy="ClickToMoveOnly" WaitTime="1000" />
+		<While Condition="!Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="FlyTo" DestName="Medium-1" X="1865.989" Y="299.4037" Z="81.6607" />
+			<CustomBehavior File="TargetAndMoveToMob" MobId="87213" MobId1="87208"  WaitForNpcs="True" MoveWithinMaxRangeOfMob="5" IgnoreLoSToTarget="True" />
+			<CustomBehavior File="InteractWith" MobId="87213" MobId1="87208" NumOfTimes="4" WaitForNpcs="False" CollectionDistance="40" WaitTime="1000" />
+		</While>
+		<While Condition="Lua.GetReturnVal&lt;bool&gt;(&quot;local shown = GarrisonCapacitiveDisplayFrame:IsShown() return (shown)&quot;,0)" >
+			<CustomBehavior File="RunCode" Code="OrderOrClose(22)"/>
+			<CustomBehavior File="WaitTimer" WaitTime="500" GoalText="Waiting for Spell {TimeRemaining}" />
+		</While>
+	</If>
+
+	<While Condition="!Me.Mounted"> <CustomBehavior File="ForcedMount" MountType="Ground" /> </While>
+	<!-- Hotspot X="1866.712" Y="289.7438" Z="81.66351" /-->
+	<CustomBehavior File="FlyTo" DestName="Stairs from Medium-1" X="1866.712" Y="289.7438" Z="81.66351" />
+	<CustomBehavior File="FlyTo" DestName="Center" X="1869.265" Y="232.1955" Z="76.63982" />
+	
+	
+	<CustomBehavior File="FlyTo" DestName="Mailbox" X="1922.723" Y="297.4537" Z="88.96548" />
+	
+		<!--- Daily Crafting Orders to be placed at the end: if materials remain -->
+	<!-- Inscription: War Paints -->
+    <If Condition="SpellManager.CanCast(169081)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(169081);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+	
+	<!-- Alchemy: Alchemical Catalyst -->
+    <While Condition="SpellManager.CanCast(168042)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(168042);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</While>
+	<If Condition="SpellManager.CanCast(156587)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(156587);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+	
+	<!-- Enchanting: Temporal Crystal -->
+    <While Condition="SpellManager.CanCast(178241)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(178241);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</While>
+	<If Condition="SpellManager.CanCast(169092)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(169092);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+	
+	<!-- Tailoring: Hexweave Cloth -->
+    <While Condition="SpellManager.CanCast(169669)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(169669);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</While>
+	<If Condition="SpellManager.CanCast(168835)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(168835);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+
+	<!-- Jewelcrafting: Taladyte Crystal -->
+    <While Condition="SpellManager.CanCast(170832)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(170832);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</While>
+	<If Condition="SpellManager.CanCast(170700)" >
+		<CustomBehavior File="RunCode" Code="WoWSpell spell = WoWSpell.FromId(170700);spell.Cast();" />
+		<CustomBehavior File="WaitTimer" WaitTime="1500" GoalText="Waiting for Secrets {TimeRemaining}" />
+	</If>
+	
+		
+</QuestOrder>
+</HBProfile>
